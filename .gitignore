@@ -3,3 +3,4 @@ nimcache
 bin
 build
 *.log
+*.exe
