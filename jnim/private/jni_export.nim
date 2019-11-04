@@ -188,7 +188,34 @@ private long """ & PointerFieldName & """;
   # s.insert($a & "\n")
   writeFile(jnimGlue, javaGlue)
 
+when defined jnimGenDex:
+  var dexGlue: string
+
 proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string): NimNode =
+  # NOTE: as of Nim 1.0.2, some stdlib packages used by dali are broken at
+  # compile time (see e.g.: https://github.com/nim-lang/Nim/issues/11761), so
+  # we must use a workaround of writing an external file and compiling it
+  # via command line.
+
+  # TODO: make it possible to customize the path of the package
+  let pkg = JnimPackageName.replace(".", "/")
+  if dexGlue.len == 0:
+    dexGlue = """
+import dali
+
+const
+  Object = "Ljava/lang/Object;"
+  Jnim = "L""" & pkg & """/Jnim;"
+  NimObject = "L""" & pkg & """/Jnim$__NimObject;"
+
+let dex = newDex()
+dex.classes.add ClassDef(
+  class: Jnim, access: {Public}, superclass: SomeType(Object))
+dex.classes.add ClassDef(
+  class: NimObject, access: {Public, Interface}, superclass: SomeType(Object))
+
+"""
+
   doAssert(false, "Not implemented")
 
 macro genJexportGlue(className, parentClass: static[string], interfaces: static[seq[string]], isPublic: static[bool], methodDefs: static[seq[MethodDescr]], staticSection, emitSection: static[string]): untyped =
