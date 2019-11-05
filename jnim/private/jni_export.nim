@@ -1,4 +1,6 @@
-import macros, tables, sets, jni_wrapper, jni_api, strutils
+import macros, tables, sets, jni_wrapper, jni_api, strutils, sequtils
+# FIXME: add dali dependency in jnim.nimble
+import dali / [types, instrs]
 
 type MethodDescr = object
   name: string
@@ -188,8 +190,7 @@ private long """ & PointerFieldName & """;
   # s.insert($a & "\n")
   writeFile(jnimGlue, javaGlue)
 
-when defined jnimGenDex:
-  var dexGlue: string
+var dexGlue {.compileTime.}: seq[ClassDef]
 
 proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string): NimNode =
   # NOTE: as of Nim 1.0.2, some stdlib packages used by dali are broken at
@@ -197,24 +198,64 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
   # we must use a workaround of writing an external file and compiling it
   # via command line.
 
-  # TODO: make it possible to customize the path of the package
-  let pkg = JnimPackageName.replace(".", "/")
+  func cls(classPath: string): Type =
+    "L" & classPath.replace(".", "/") & ";"
+
+  let
+    Object = cls"java.lang.Object"
+    # TODO: make it possible to customize the path of the package
+    pkg = JnimPackageName.replace(".", "/")
+    Jnim = cls(JnimPackageName & ".Jnim")
+    NimObject = cls(JnimPackageName & ".Jnim$__NimObject")
   if dexGlue.len == 0:
-    dexGlue = """
-import dali
+    dexGlue.add ClassDef(
+      class: Jnim, access: {Public}, superclass: SomeType(Object))
+    dexGlue.add ClassDef(
+      class: NimObject, access: {Public, Interface}, superclass: SomeType(Object))
 
-const
-  Object = "Ljava/lang/Object;"
-  Jnim = "L""" & pkg & """/Jnim;"
-  NimObject = "L""" & pkg & """/Jnim$__NimObject;"
-
-let dex = newDex()
-dex.classes.add ClassDef(
-  class: Jnim, access: {Public}, superclass: SomeType(Object))
-dex.classes.add ClassDef(
-  class: NimObject, access: {Public, Interface}, superclass: SomeType(Object))
-
-"""
+  let
+    class = cls(JnimPackageName & ".Jnim$" & className)
+    super = if parentClass.len != 0: cls(parentClass) else: Object
+    field = Field(class: class, typ: "J", name: PointerFieldName)
+    Throws = cls"dalvik.annotation.Throws"
+    Throwable = cls"java.lang.Throwable"
+  var classDef = ClassDef(
+    class: class,
+    access: {Public, Static},
+    superclass: SomeType(super),
+    interfaces: (NimObject & interfaces).map(cls),
+    class_data: ClassData(
+      instance_fields: @[
+        EncodedField(f: field, access: {Private})],
+      virtual_methods: @[
+        EncodedMethod(
+          # protected void finalize() throws Throwable
+          m: Method(class: class, name: "finalize", prototype: Prototype(ret: "V")),
+          access: {Protected},
+          annotations: @[
+            (VisSystem, EncodedAnnotation(typ: Throws, elems: @[
+              AnnotationElement(name: "value", value: EVArray(@[
+                EVType(Throwable),
+              ]))
+            ]))],
+          code: SomeCode(Code(
+            registers: 3, ins: 1, outs: 2, instrs: @[
+              # ins: this
+              # super.finalize()
+              invoke_super(2,
+                Method(class: super, name: "finalize", prototype: Prototype(ret: "V"))),
+              # this.FinalizerName(PointerFieldName)
+              iget_wide(0, 2, field),
+              invoke_static(0, 1,
+                Method(class: Jnim, name: FinalizerName, prototype: Prototype(ret: "V", params: @["J"]))),
+              # this.PointerFieldName = 0
+              const_wide_16(0, 0'i16),
+              iput_wide(0, 2, field),
+              return_void(),
+          ]))),
+        ],
+    ))
+  # FIXME: provide a way for user to [easily] add `<clinit>` with System.loadLibrary(userProvidedLibName)
 
   doAssert(false, "Not implemented")
 
