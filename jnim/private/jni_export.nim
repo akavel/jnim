@@ -190,9 +190,18 @@ private long """ & PointerFieldName & """;
   # s.insert($a & "\n")
   writeFile(jnimGlue, javaGlue)
 
-proc genDexInvokeSuper(super: Type, args: seq[Type], argWidths: seq[int]): Instr =
-  # 35c, 3rc
-  newInstr(0x70, iargs)
+proc newDexInvoke(opcode: uint8, nregs, reg0: int, m: Method): Instr =
+  if nregs <= 5: # Dalvik instruction format 35c
+    func reg(n: int): Arg = if n < nregs: RegX(uint4(reg0+n)) else: RawX(0)
+    newInstr(
+      opcode, RawX(uint4(nregs)), reg(4),
+      MethodXXXX(m),
+      reg(1), reg(0), reg(3), reg(2))
+  else: # Dalvik instruction format 3rc
+    newInstr(
+      opcode, RawXX(uint8(nregs)),
+      MethodXXXX(m),
+      RawXXXX(uint16(reg0)))
 
 var dexGlue {.compileTime.}: seq[ClassDef]
 
@@ -290,15 +299,16 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
       # FIXME: handle all wide types, not only "J"
       func width(typ: Type): int = if typ in {"J"}: 2 else: 1
       let
-        argWidths = args.map(width)
-        nregs = argWidths.foldl(a + b, 1)  # extra 1 accounts for 'this'
+        nregs = args.map(width).foldl(a + b, 1)  # extra 1 accounts for 'this'
+        prototype = Prototype(ret: "V", params: args)
+      # public `class`(`args...`) { super(`args...`) }  /* a constructor */
       classDef.class_data.direct_methods.add EncodedMethod(
-        m: Method(class: class, name: "<init>",
-          prototype: Prototype(ret: "V", params: args)),
+        m: Method(class: class, name: "<init>", prototype: prototype),
         access: {Public, Constructor}, code: SomeCode(Code(
           registers: nregs, ins: nregs, outs: nregs, instrs: @[
-            genDexInvokeSuper(super, args, argWidths)
-      # genDexConstr
+            newDexInvoke(0x70, nregs, 0, Method(class: super, name: "<init>", prototype: prototype)),
+            return_void(),
+          ])))
 
   doAssert(false, "Not implemented")
 
