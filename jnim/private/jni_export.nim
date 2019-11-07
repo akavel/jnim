@@ -192,7 +192,8 @@ private long """ & PointerFieldName & """;
 
 proc newDexInvoke(opcode: uint8, nregs, reg0: int, m: Method): Instr =
   if nregs <= 5: # Dalvik instruction format 35c
-    func reg(n: int): Arg = if n < nregs: RegX(uint4(reg0+n)) else: RawX(0)
+    func reg(n: int): Arg =
+      if n < nregs: RegX(uint4(reg0+n)) else: RawX(0)
     newInstr(
       opcode, RawX(uint4(nregs)), reg(4),
       MethodXXXX(m),
@@ -296,9 +297,10 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
         m: Method(class: class, name: m.name,
           prototype: Prototype(ret: typ(m.retType), params: args)),
         access: {Public}, code: NoCode())
-    else
+    else:
       # FIXME: handle all wide types, not only "J"
-      func width(typ: Type): int = if typ in {"J"}: 2 else: 1
+      func width(typ: Type): int =
+        if typ[0] in {'J'}: 2 else: 1
       let
         nregs = args.map(width).foldl(a + b, 1)  # extra 1 accounts for 'this'
         prototype = Prototype(ret: "V", params: args)
@@ -306,10 +308,12 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
       classDef.class_data.direct_methods.add EncodedMethod(
         m: Method(class: class, name: "<init>", prototype: prototype),
         access: {Public, Constructor}, code: SomeCode(Code(
-          registers: nregs, ins: nregs, outs: nregs, instrs: @[
+          registers: nregs.uint16, ins: nregs.uint16, outs: nregs.uint16, instrs: @[
             newDexInvoke(0x70, nregs, 0, Method(class: super, name: "<init>", prototype: prototype)),
             return_void(),
           ])))
+
+  dexGlue.add classDef
 
   doAssert(false, "Not implemented")
 
