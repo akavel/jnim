@@ -198,6 +198,7 @@ proc newDexInvoke(opcode: uint8, nregs, reg0: int, m: Method): Instr =
       MethodXXXX(m),
       reg(1), reg(0), reg(3), reg(2))
   else: # Dalvik instruction format 3rc
+    warning "jnimGenDex support for constructors with many params not tested; please report results at https://github.com/yglukhov/jnim"
     newInstr(
       opcode, RawXX(uint8(nregs)),
       MethodXXXX(m),
