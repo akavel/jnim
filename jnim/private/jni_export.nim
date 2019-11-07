@@ -190,6 +190,10 @@ private long """ & PointerFieldName & """;
   # s.insert($a & "\n")
   writeFile(jnimGlue, javaGlue)
 
+proc genDexInvokeSuper(super: Type, args: seq[Type], argWidths: seq[int]): Instr =
+  # 35c, 3rc
+  newInstr(0x70, iargs)
+
 var dexGlue {.compileTime.}: seq[ClassDef]
 
 proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string): NimNode =
@@ -198,8 +202,8 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
   # we must use a workaround of writing an external file and compiling it
   # via command line.
 
-  func cls(classPath: string): Type =
-    "L" & classPath.replace(".", "/") & ";"
+  func cls(javaClassPath: string): Type =
+    "L" & javaClassPath.replace(".", "/") & ";"
 
   let
     Object = cls"java.lang.Object"
@@ -226,10 +230,11 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
     interfaces: (NimObject & interfaces).map(cls),
     class_data: ClassData(
       instance_fields: @[
+        # private long PointerFieldName;
         EncodedField(f: field, access: {Private})],
       virtual_methods: @[
+        # protected void finalize() throws Throwable { super.finalize(); FinalizerName(PointerFieldName); PointerFieldName = 0; }
         EncodedMethod(
-          # protected void finalize() throws Throwable
           m: Method(class: class, name: "finalize", prototype: Prototype(ret: "V")),
           access: {Protected},
           annotations: @[
@@ -256,6 +261,44 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
         ],
     ))
   # FIXME: provide a way for user to [easily] add `<clinit>` with System.loadLibrary(userProvidedLibName)
+
+  func typ(javaType: string): Type =
+    case javaType
+    of "void": "V"
+    of "boolean": "Z"
+    of "byte": "B"
+    of "char": "C"
+    of "int": "I"
+    of "long": "J"
+    of "float": "F"
+    of "double": "D"
+    of "short": "S"
+    of "String": cls"java.lang.String"  # TODO: do we need this, or we already get java.lang.String?
+    of "Object": cls"java.lang.Object"
+    of "Class": cls"java.lang.Class"
+    of "Throwable": cls"java.lang.Throwable"
+    else: cls(javaType)
+
+  for m in methodDefs:
+    let args = m.argTypes.map(typ)
+    if not m.isConstr:
+      classDef.class_data.virtual_methods.add EncodedMethod(
+        m: Method(class: class, name: m.name,
+          prototype: Prototype(ret: typ(m.retType), params: args)),
+        access: {Public}, code: NoCode())
+    else
+      # FIXME: handle all wide types, not only "J"
+      func width(typ: Type): int = if typ in {"J"}: 2 else: 1
+      let
+        argWidths = args.map(width)
+        nregs = argWidths.foldl(a + b, 1)  # extra 1 accounts for 'this'
+      classDef.class_data.direct_methods.add EncodedMethod(
+        m: Method(class: class, name: "<init>",
+          prototype: Prototype(ret: "V", params: args)),
+        access: {Public, Constructor}, code: SomeCode(Code(
+          registers: nregs, ins: nregs, outs: nregs, instrs: @[
+            genDexInvokeSuper(super, args, argWidths)
+      # genDexConstr
 
   doAssert(false, "Not implemented")
 
