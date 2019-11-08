@@ -190,21 +190,6 @@ private long """ & PointerFieldName & """;
   # s.insert($a & "\n")
   writeFile(jnimGlue, javaGlue)
 
-proc newDexInvoke(opcode: uint8, nregs, reg0: int, m: Method): Instr =
-  if nregs <= 5: # Dalvik instruction format 35c
-    func reg(n: int): Arg =
-      if n < nregs: RegX(uint4(reg0+n)) else: RawX(0)
-    newInstr(
-      opcode, RawX(uint4(nregs)), reg(4),
-      MethodXXXX(m),
-      reg(1), reg(0), reg(3), reg(2))
-  else: # Dalvik instruction format 3rc
-    warning "jnimGenDex support for constructors with many params not tested; please report results at https://github.com/yglukhov/jnim"
-    newInstr(
-      opcode, RawXX(uint8(nregs)),
-      MethodXXXX(m),
-      RawXXXX(uint16(reg0)))
-
 var dexGlue {.compileTime.}: seq[string]
 
 proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string) =
@@ -214,12 +199,18 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
   # via command line.
 
   func cls(javaClassPath: string): Type =
-    "L" & javaClassPath.replace(".", "/") & ";"
+    if javaClassPath.startsWith "Jnim.":
+      # FIXME: sometimes we're getting class names without full path from jexport
+      cls(javaClassPath[5..^1])
+    elif not javaClassPath.contains ".":
+      # FIXME: sometimes we're getting class names without full path from jexport
+      cls(JnimPackageName & ".Jnim$" & javaClassPath)
+    else:
+      "L" & javaClassPath.replace(".", "/") & ";"
 
   let
     Object = cls"java.lang.Object"
     # TODO: make it possible to customize the path of the package
-    pkg = JnimPackageName.replace(".", "/")
     Jnim = cls(JnimPackageName & ".Jnim")
     NimObject = cls(JnimPackageName & ".Jnim$__NimObject")
   if dexGlue.len == 0:
@@ -231,18 +222,18 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
   let
     class = cls(JnimPackageName & ".Jnim$" & className)
     super = if parentClass.len != 0: cls(parentClass) else: Object
-    field = Field(class: class, typ: "J", name: PointerFieldName)
+    field = "Field(class: " & class.repr & ", typ: \"J\", name: " & PointerFieldName.repr & ")"
     Throws = cls"dalvik.annotation.Throws"
     Throwable = cls"java.lang.Throwable"
   dexGlue.add "dex.classes.add ClassDef(\n" &
     "  class: " & class.repr & ",\n" &
     "  access: {Public, Static},\n" &
     "  superclass: SomeType(" & super.repr & "),\n" &
-    "  interfaces: " & (NimObject & interfaces.map(cls)).repr & ",\n" &
+    "  interfaces: @" & (NimObject & interfaces.map(cls)).repr & ",\n" &
     "  class_data: ClassData(\n" &
     "    instance_fields: @[\n" &
           # private long PointerFieldName;
-    "      EncodedField(f: " & field.repr & ", access: {Private})],\n" &
+    "      EncodedField(f: " & field & ", access: {Private})],\n" &
     "    virtual_methods: @[\n" &
           # protected void finalize() throws Throwable { super.finalize(); FinalizerName(PointerFieldName); PointerFieldName = 0; }
     "      EncodedMethod(\n" &
@@ -261,12 +252,12 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
     "            invoke_super(2,\n" &
     "              Method(class: " & super.repr & ", name: \"finalize\", prototype: Prototype(ret: \"V\"))),\n" &
                 # this.FinalizerName(PointerFieldName)
-    "            iget_wide(0, 2, " & field.repr & "),\n" &
+    "            iget_wide(0, 2, " & field & "),\n" &
     "            invoke_static(0, 1,\n" &
     "              Method(class: " & Jnim.repr & ", name: " & FinalizerName.repr & ", prototype: Prototype(ret: \"V\", params: @[\"J\"]))),\n" &
                 # this.PointerFieldName = 0
     "            const_wide_16(0, 0'i16),\n" &
-    "            iput_wide(0, 2, " & field.repr & "),\n" &
+    "            iput_wide(0, 2, " & field & "),\n" &
     "            return_void(),\n" &
     "        ]))),\n" &
     "      ],\n" &
@@ -295,7 +286,7 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
     if not m.isConstr:
       dexGlue.add "dex.classes[^1].class_data.virtual_methods.add EncodedMethod(\n" &
         "  m: Method(class: " & class.repr & ", name: " & m.name.repr & ",\n" &
-        "    prototype: Prototype(ret: " & typ(m.retType).repr & ", params: " & args.repr & ")),\n" &
+        "    prototype: Prototype(ret: " & typ(m.retType).repr & ", params: @" & args.repr & ")),\n" &
         "  access: {Public}, code: NoCode())\n"
     else:
       # FIXME: handle all wide types, not only "J"
@@ -303,19 +294,34 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
         if typ[0] in {'J'}: 2 else: 1
       let
         nregs = args.map(width).foldl(a + b, 1)  # extra 1 accounts for 'this'
-        prototype = Prototype(ret: "V", params: args)
+        prototype = "Prototype(ret: \"V\", params: @" & args.repr & ")"
       # public `class`(`args...`) { super(`args...`) }  /* a constructor */
       dexGlue.add "dex.classes[^1].class_data.direct_methods.add EncodedMethod(\n" &
-        "  m: Method(class: " & class.repr & ", name: \"<init>\", prototype: " & prototype.repr & "),\n" &
+        "  m: Method(class: " & class.repr & ", name: \"<init>\", prototype: " & prototype & "),\n" &
         "  access: {Public, Constructor}, code: SomeCode(Code(\n" &
         "    registers: " & nregs.repr & ".uint16, ins: " & nregs.repr & ".uint16, outs: " & nregs.repr & ".uint16, instrs: @[\n" &
-        "      newDexInvoke(0x70, " & nregs.repr & ", 0, Method(class: " & super.repr & ", name: \"<init>\", prototype: " & prototype.repr & ")),\n" &
+        "      newDexInvoke(0x70, " & nregs.repr & ", 0, Method(class: " & super.repr & ", name: \"<init>\", prototype: " & prototype & ")),\n" &
         "      return_void(),\n" &
         "    ])))\n"
 
 macro jnimDexWrite*(genDex: static[string] = "gen_dex.nim", dex: static[string] = "classes.dex", nativeLib: static[string]): untyped =
   writeFile(genDex, """
 import dali
+
+proc newDexInvoke(opcode: uint8, nregs, reg0: int, m: Method): Instr =
+  if nregs <= 5: # Dalvik instruction format 35c
+    func reg(n: int): Arg =
+      if n < nregs: RegX(uint4(reg0+n)) else: RawX(0)
+    newInstr(
+      opcode, RawX(uint4(nregs)), reg(4),
+      MethodXXXX(m),
+      reg(1), reg(0), reg(3), reg(2))
+  else: # Dalvik instruction format 3rc
+    # FIXME: jnimGenDex support for constructors with many params not tested
+    newInstr(
+      opcode, RawXX(uint8(nregs)),
+      MethodXXXX(m),
+      RawXXXX(uint16(reg0)))
 
 let dex = newDex()
 $1
