@@ -287,7 +287,7 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
       dexGlue.add "dex.classes[^1].class_data.virtual_methods.add EncodedMethod(\n" &
         "  m: Method(class: " & class.repr & ", name: " & m.name.repr & ",\n" &
         "    prototype: Prototype(ret: " & typ(m.retType).repr & ", params: @" & args.repr & ")),\n" &
-        "  access: {Public}, code: NoCode())\n"
+        "  access: {Public, Native}, code: NoCode())\n"
     else:
       # FIXME: handle all wide types, not only "J"
       func width(typ: Type): int =
