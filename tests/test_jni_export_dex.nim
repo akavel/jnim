@@ -60,3 +60,5 @@ when defined jnimGenDex:
 
   proc voidMethod(this: MyObj) =
     inc this.data.a
+
+  jnimDexWrite("tmp.nim", "classes.dex", "libfoo.so")

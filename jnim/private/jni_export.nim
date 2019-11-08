@@ -205,9 +205,9 @@ proc newDexInvoke(opcode: uint8, nregs, reg0: int, m: Method): Instr =
       MethodXXXX(m),
       RawXXXX(uint16(reg0)))
 
-var dexGlue {.compileTime.}: seq[ClassDef]
+var dexGlue {.compileTime.}: seq[string]
 
-proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string): NimNode =
+proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPublic: bool, methodDefs: seq[MethodDescr], staticSection, emitSection: string) =
   # NOTE: as of Nim 1.0.2, some stdlib packages used by dali are broken at
   # compile time (see e.g.: https://github.com/nim-lang/Nim/issues/11761), so
   # we must use a workaround of writing an external file and compiling it
@@ -223,10 +223,10 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
     Jnim = cls(JnimPackageName & ".Jnim")
     NimObject = cls(JnimPackageName & ".Jnim$__NimObject")
   if dexGlue.len == 0:
-    dexGlue.add ClassDef(
-      class: Jnim, access: {Public}, superclass: SomeType(Object))
-    dexGlue.add ClassDef(
-      class: NimObject, access: {Public, Interface}, superclass: SomeType(Object))
+    dexGlue.add "dex.classes.add ClassDef(class: " &
+      Jnim.repr & ", access: {Public}, superclass: SomeType(" & Object.repr & "))\n"
+    dexGlue.add "dex.classes.add ClassDef(class: " &
+      NimObject.repr & ", access: {Public, Interface}, superclass: SomeType(" & Object.repr & "))\n"
 
   let
     class = cls(JnimPackageName & ".Jnim$" & className)
@@ -234,43 +234,43 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
     field = Field(class: class, typ: "J", name: PointerFieldName)
     Throws = cls"dalvik.annotation.Throws"
     Throwable = cls"java.lang.Throwable"
-  var classDef = ClassDef(
-    class: class,
-    access: {Public, Static},
-    superclass: SomeType(super),
-    interfaces: (NimObject & interfaces).map(cls),
-    class_data: ClassData(
-      instance_fields: @[
-        # private long PointerFieldName;
-        EncodedField(f: field, access: {Private})],
-      virtual_methods: @[
-        # protected void finalize() throws Throwable { super.finalize(); FinalizerName(PointerFieldName); PointerFieldName = 0; }
-        EncodedMethod(
-          m: Method(class: class, name: "finalize", prototype: Prototype(ret: "V")),
-          access: {Protected},
-          annotations: @[
-            (VisSystem, EncodedAnnotation(typ: Throws, elems: @[
-              AnnotationElement(name: "value", value: EVArray(@[
-                EVType(Throwable),
-              ]))
-            ]))],
-          code: SomeCode(Code(
-            registers: 3, ins: 1, outs: 2, instrs: @[
-              # ins: this
-              # super.finalize()
-              invoke_super(2,
-                Method(class: super, name: "finalize", prototype: Prototype(ret: "V"))),
-              # this.FinalizerName(PointerFieldName)
-              iget_wide(0, 2, field),
-              invoke_static(0, 1,
-                Method(class: Jnim, name: FinalizerName, prototype: Prototype(ret: "V", params: @["J"]))),
-              # this.PointerFieldName = 0
-              const_wide_16(0, 0'i16),
-              iput_wide(0, 2, field),
-              return_void(),
-          ]))),
-        ],
-    ))
+  dexGlue.add "dex.classes.add ClassDef(\n" &
+    "  class: " & class.repr & ",\n" &
+    "  access: {Public, Static},\n" &
+    "  superclass: SomeType(" & super.repr & "),\n" &
+    "  interfaces: " & (NimObject & interfaces.map(cls)).repr & ",\n" &
+    "  class_data: ClassData(\n" &
+    "    instance_fields: @[\n" &
+          # private long PointerFieldName;
+    "      EncodedField(f: " & field.repr & ", access: {Private})],\n" &
+    "    virtual_methods: @[\n" &
+          # protected void finalize() throws Throwable { super.finalize(); FinalizerName(PointerFieldName); PointerFieldName = 0; }
+    "      EncodedMethod(\n" &
+    "        m: Method(class: " & class.repr & ", name: \"finalize\", prototype: Prototype(ret: \"V\")),\n" &
+    "        access: {Protected},\n" &
+    "        annotations: @[\n" &
+    "          (VisSystem, EncodedAnnotation(typ: " & Throws.repr & ", elems: @[\n" &
+    "            AnnotationElement(name: \"value\", value: EVArray(@[\n" &
+    "              EVType(" & Throwable.repr & "),\n" &
+    "            ]))\n" &
+    "          ]))],\n" &
+    "        code: SomeCode(Code(\n" &
+    "          registers: 3, ins: 1, outs: 2, instrs: @[\n" &
+                # ins: this
+                # super.finalize()
+    "            invoke_super(2,\n" &
+    "              Method(class: " & super.repr & ", name: \"finalize\", prototype: Prototype(ret: \"V\"))),\n" &
+                # this.FinalizerName(PointerFieldName)
+    "            iget_wide(0, 2, " & field.repr & "),\n" &
+    "            invoke_static(0, 1,\n" &
+    "              Method(class: " & Jnim.repr & ", name: " & FinalizerName.repr & ", prototype: Prototype(ret: \"V\", params: @[\"J\"]))),\n" &
+                # this.PointerFieldName = 0
+    "            const_wide_16(0, 0'i16),\n" &
+    "            iput_wide(0, 2, " & field.repr & "),\n" &
+    "            return_void(),\n" &
+    "        ]))),\n" &
+    "      ],\n" &
+    "  ))\n"
   # FIXME: provide a way for user to [easily] add `<clinit>` with System.loadLibrary(userProvidedLibName)
 
   func typ(javaType: string): Type =
@@ -293,10 +293,10 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
   for m in methodDefs:
     let args = m.argTypes.map(typ)
     if not m.isConstr:
-      classDef.class_data.virtual_methods.add EncodedMethod(
-        m: Method(class: class, name: m.name,
-          prototype: Prototype(ret: typ(m.retType), params: args)),
-        access: {Public}, code: NoCode())
+      dexGlue.add "dex.classes[^1].class_data.virtual_methods.add EncodedMethod(\n" &
+        "  m: Method(class: " & class.repr & ", name: " & m.name.repr & ",\n" &
+        "    prototype: Prototype(ret: " & typ(m.retType).repr & ", params: " & args.repr & ")),\n" &
+        "  access: {Public}, code: NoCode())\n"
     else:
       # FIXME: handle all wide types, not only "J"
       func width(typ: Type): int =
@@ -305,17 +305,22 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
         nregs = args.map(width).foldl(a + b, 1)  # extra 1 accounts for 'this'
         prototype = Prototype(ret: "V", params: args)
       # public `class`(`args...`) { super(`args...`) }  /* a constructor */
-      classDef.class_data.direct_methods.add EncodedMethod(
-        m: Method(class: class, name: "<init>", prototype: prototype),
-        access: {Public, Constructor}, code: SomeCode(Code(
-          registers: nregs.uint16, ins: nregs.uint16, outs: nregs.uint16, instrs: @[
-            newDexInvoke(0x70, nregs, 0, Method(class: super, name: "<init>", prototype: prototype)),
-            return_void(),
-          ])))
+      dexGlue.add "dex.classes[^1].class_data.direct_methods.add EncodedMethod(\n" &
+        "  m: Method(class: " & class.repr & ", name: \"<init>\", prototype: " & prototype.repr & "),\n" &
+        "  access: {Public, Constructor}, code: SomeCode(Code(\n" &
+        "    registers: " & nregs.repr & ".uint16, ins: " & nregs.repr & ".uint16, outs: " & nregs.repr & ".uint16, instrs: @[\n" &
+        "      newDexInvoke(0x70, " & nregs.repr & ", 0, Method(class: " & super.repr & ", name: \"<init>\", prototype: " & prototype.repr & ")),\n" &
+        "      return_void(),\n" &
+        "    ])))\n"
 
-  dexGlue.add classDef
+macro jnimDexWrite*(genDex: static[string] = "gen_dex.nim", dex: static[string] = "classes.dex", nativeLib: static[string]): untyped =
+  writeFile(genDex, """
+import dali
 
-  doAssert(false, "Not implemented")
+let dex = newDex()
+$1
+writeFile($2, dex.render)
+""" % [dexGlue.join(""), dex.repr])
 
 macro genJexportGlue(className, parentClass: static[string], interfaces: static[seq[string]], isPublic: static[bool], methodDefs: static[seq[MethodDescr]], staticSection, emitSection: static[string]): untyped =
   # echo treeRepr(a)
