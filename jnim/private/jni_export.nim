@@ -213,9 +213,26 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
     # TODO: make it possible to customize the path of the package
     Jnim = cls(JnimPackageName & ".Jnim")
     NimObject = cls(JnimPackageName & ".Jnim$__NimObject")
+    System = cls"java.lang.System"
+    String = cls"java.lang.String"
   if dexGlue.len == 0:
     dexGlue.add "dex.classes.add ClassDef(class: " &
-      Jnim.repr & ", access: {Public}, superclass: SomeType(" & Object.repr & "))\n"
+      Jnim.repr & ", access: {Public}, superclass: SomeType(" & Object.repr & "),\n" &
+      "  class_data: ClassData(\n" &
+      "    direct_methods: @[\n" &
+      "      EncodedMethod(\n" &
+      "        m: Method(class: " & Jnim.repr & ", name: \"<clinit>\", prototype: Prototype(ret: \"V\")),\n" &
+      "        access: {Static, Constructor},\n" &
+      "        code: SomeCode(Code(\n" &
+      "          registers: 2, ins: 0, outs: 1, instrs: @[\n" &
+      "          # System.loadLibrary(libname)\n" &
+      "          const_string(0, libname),\n" &
+      "          invoke_static(0, \n" &
+      "            Method(class: " & System.repr & ", name: \"loadLibrary\", prototype: Prototype(ret: \"V\", params: @[" & String.repr & "]))),\n" &
+      "          return_void(),\n" &
+      "          ]))\n" &
+      "      )\n" &
+      "    ]))\n"
     dexGlue.add "dex.classes.add ClassDef(class: " &
       NimObject.repr & ", access: {Public, Interface}, superclass: SomeType(" & Object.repr & "))\n"
 
@@ -262,7 +279,6 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
     "        ]))),\n" &
     "      ],\n" &
     "  ))\n"
-  # FIXME: provide a way for user to [easily] add `<clinit>` with System.loadLibrary(userProvidedLibName)
 
   func typ(javaType: string): Type =
     case javaType
@@ -306,7 +322,18 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
 
 macro jnimDexWrite*(genDex: static[string] = "gen_dex.nim", dex: static[string] = "classes.dex", nativeLib: static[string]): untyped =
   writeFile(genDex, """
+import os, strutils
 import dali
+
+if paramCount() != 2:
+  stderr.write("error: bad number of arguments\n")
+  stderr.write("USAGE: gen_dex CLASSES.DEX LIBFOOBAR.SO\n")
+  quit(1)
+var
+  dexfile = paramStr(1)
+  libname = paramStr(2)
+libname.removePrefix("lib")
+libname.removeSuffix(".so")
 
 proc newDexInvoke(opcode: uint8, nregs, reg0: int, m: Method): Instr =
   if nregs <= 5: # Dalvik instruction format 35c
@@ -325,8 +352,8 @@ proc newDexInvoke(opcode: uint8, nregs, reg0: int, m: Method): Instr =
 
 let dex = newDex()
 $1
-writeFile($2, dex.render)
-""" % [dexGlue.join(""), dex.repr])
+writeFile(dexfile, dex.render)
+""" % [dexGlue.join("")])
 
 macro genJexportGlue(className, parentClass: static[string], interfaces: static[seq[string]], isPublic: static[bool], methodDefs: static[seq[MethodDescr]], staticSection, emitSection: static[string]): untyped =
   # echo treeRepr(a)
