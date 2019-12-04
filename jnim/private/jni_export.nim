@@ -320,7 +320,7 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
         "      return_void(),\n" &
         "    ])))\n"
 
-macro jnimDexWrite*(genDex: static[string] = "gen_dex.nim", dex: static[string] = "classes.dex", nativeLib: static[string]): untyped =
+macro jnimDexWrite*(genDex: static[string] = "gen_dex.nim"): untyped =
   writeFile(genDex, """
 import os, strutils
 import dali
