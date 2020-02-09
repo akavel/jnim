@@ -645,7 +645,7 @@ macro jexport*(a: varargs[untyped]): untyped =
       converter `converterName`*(v: `classNameIdent`): `interfaceName` {.inline.} =
         cast[`interfaceName`](v)
 
-  # echo repr result
+  echo repr result
 
 macro debugPrintJavaGlue*(): untyped {.deprecated.} =
   echo javaGlue
