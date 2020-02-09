@@ -251,11 +251,30 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
     "    instance_fields: @[\n" &
           # private long PointerFieldName;
     "      EncodedField(f: " & field & ", access: {Private})],\n" &
+    "    direct_methods: @[\n" &
+    "      EncodedMethod(\n" &
+    "        m: Method(class: " & class.repr & ", name: \"<clinit>\", prototype: Prototype(ret: \"V\")),\n" &
+    "        access: {Static, Constructor},\n" &
+    "        code: SomeCode(Code(\n" &
+    "          registers: 2, ins: 0, outs: 1, instrs: @[\n" &
+    "          # System.loadLibrary(libname)\n" &
+    "          const_string(0, libname),\n" &
+    "          invoke_static(0, \n" &
+    "            Method(class: " & System.repr & ", name: \"loadLibrary\", prototype: Prototype(ret: \"V\", params: @[" & String.repr & "]))),\n" &
+    "          return_void(),\n" &
+    "          ]))\n" &
+    "      ),\n" &
+    "      EncodedMethod(\n" &
+    "        m: Method(class: " & class.repr & ", name: \"" & FinalizerName & "\", prototype: Prototype(ret: \"V\", params: @[\"J\"])),\n" &
+    "        access: {Static, Public, Native},\n" &
+    "        code: NoCode()\n" &
+    "      )\n" &
+    "    ],\n" &
     "    virtual_methods: @[\n" &
           # protected void finalize() throws Throwable { super.finalize(); FinalizerName(PointerFieldName); PointerFieldName = 0; }
     "      EncodedMethod(\n" &
     "        m: Method(class: " & class.repr & ", name: \"finalize\", prototype: Prototype(ret: \"V\")),\n" &
-    "        access: {Protected},\n" &
+    "        access: {Public},\n" &
     "        annotations: @[\n" &
     "          (VisSystem, EncodedAnnotation(typ: " & Throws.repr & ", elems: @[\n" &
     "            AnnotationElement(name: \"value\", value: EVArray(@[\n" &
@@ -271,7 +290,7 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
                 # this.FinalizerName(PointerFieldName)
     "            iget_wide(0, 2, " & field & "),\n" &
     "            invoke_static(0, 1,\n" &
-    "              Method(class: " & Jnim.repr & ", name: " & FinalizerName.repr & ", prototype: Prototype(ret: \"V\", params: @[\"J\"]))),\n" &
+    "              Method(class: " & class.repr & ", name: " & FinalizerName.repr & ", prototype: Prototype(ret: \"V\", params: @[\"J\"]))),\n" &
                 # this.PointerFieldName = 0
     "            const_wide_16(0, 0'i16),\n" &
     "            iput_wide(0, 2, " & field & "),\n" &
