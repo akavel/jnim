@@ -577,7 +577,7 @@ macro jexport*(a: varargs[untyped]): untyped =
 
         thunkCall = newCall(bindSym"nimValueToJni", envName, thunkCall, copyNimTree(thunkParams[0]))
 
-        let thunk = newProc(thunkName, thunkParams)
+        let thunk = newProc(postfix(thunkName, "*"), thunkParams)
         thunk.addPragma(newIdentNode("cdecl"))
         thunk.addPragma(newIdentNode("dynlib"))
         thunk.addPragma(newIdentNode("exportc")) # Allow jni runtime to discover the functions
@@ -608,7 +608,7 @@ macro jexport*(a: varargs[untyped]): untyped =
   block: # Finalizer thunk
     let thunkName = genSym(nskProc, JniExportedFunctionPrefix & className & "__0")
     result.add quote do:
-      proc `thunkName`(jniEnv: JNIEnvPtr, this: jobject, p: jlong) {.exportc, dynlib, cdecl.} =
+      proc `thunkName`*(jniEnv: JNIEnvPtr, this: jobject, p: jlong) {.exportc, dynlib, cdecl.} =
         finalizeJobject(jniEnv, this, p)
 
 
