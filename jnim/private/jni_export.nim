@@ -477,9 +477,11 @@ proc implementConstructor(p: NimNode, className: string, sig: NimNode): NimNode 
       jniRegisterNativeMethods(`classIdent`, `iClazz`)
 
     let inst = `iClazz`.newObjectRaw(`sig`, `args`)
+    when compiles(result.data):
+      let data = cast[type(result.data)](getNimDataFromJObject(theEnv, inst))
     result = `classIdent`.fromJObjectConsumingLocalRef(inst)
     when compiles(result.data):
-      result.data = cast[type(result.data)](getNimDataFromJObject(theEnv, inst))
+      result.data = data
 
 macro jexport*(a: varargs[untyped]): untyped =
   var (className, parentClass, interfaces, body, isPublic) = extractArguments(a)
