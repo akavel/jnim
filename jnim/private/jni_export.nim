@@ -662,7 +662,7 @@ macro jexport*(a: varargs[untyped]): untyped =
           jniRegisterNativeMethods(`classIdent`, `iClazz`)
         when compiles(`classIdent`.data):
           let data = new(type(`classIdent`.data))
-          setNimDataToJObject(theEnv, this, `iClazz`.get, cast[RootRef](data))
+          setNimDataToJObject(jniEnv, this, `iClazz`.get, cast[RootRef](data))
 
   result.add(constructors)
 
