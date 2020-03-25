@@ -11,6 +11,7 @@ const
   JnimPackageName = "io.github.yglukhov.jnim"
   FinalizerName = "_0"
   PointerFieldName = "_1"
+  InitializerName = "_2"
   JniExportedFunctionPrefix = "Java_" & JnimPackageName.replace('.', '_') & "_Jnim_00024"
 
 proc initMethodDescr(name, retType: string, argTypes: seq[string]): MethodDescr =
@@ -145,6 +146,7 @@ public static native void """ & FinalizerName & """(long p);
   classDef &= """
 protected void finalize() throws Throwable { super.finalize(); """ & FinalizerName & "(" & PointerFieldName & "); " & PointerFieldName & """ = 0; }
 private long """ & PointerFieldName & """;
+private native void """ & InitializerName & """();
 """
 
   for m in methodDefs:
@@ -168,7 +170,7 @@ private long """ & PointerFieldName & """;
       for i, a in m.argTypes:
         if i != 0: classDef &= ", "
         classDef &= "_" & $i
-      classDef &= "); }\n"
+      classDef &= "); " & InitializerName & "(); }\n"
     else:
       classDef &= ";\n"
 
@@ -269,6 +271,12 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
     "        access: {Static, Public, Native},\n" &
     "        code: NoCode()\n" &
     "      )\n" &
+          # private native void `InitializerName`();
+    "      EncodedMethod(\n" &
+    "        m: Method(class: " & class.repr & ", name: \"" & InitializerName & "\", prototype: Prototype(ret: \"V\", params: @[])),\n" &
+    "        access: {Native},\n" &
+    "        code: NoCode()\n" &
+    "      )\n" &
     "    ],\n" &
     "    virtual_methods: @[\n" &
           # protected void finalize() throws Throwable { super.finalize(); FinalizerName(PointerFieldName); PointerFieldName = 0; }
@@ -330,12 +338,13 @@ proc genDexGlue(className, parentClass: string, interfaces: seq[string], isPubli
       let
         nregs = args.map(width).foldl(a + b, 1)  # extra 1 accounts for 'this'
         prototype = "Prototype(ret: \"V\", params: @" & args.repr & ")"
-      # public `class`(`args...`) { super(`args...`) }  /* a constructor */
+      # public `class`(`args...`) { super(`args...`); InitializerName(); }  /* a constructor */
       dexGlue.add "dex.classes[^1].class_data.direct_methods.add EncodedMethod(\n" &
         "  m: Method(class: " & class.repr & ", name: \"<init>\", prototype: " & prototype & "),\n" &
         "  access: {Public, Constructor}, code: SomeCode(Code(\n" &
         "    registers: " & nregs.repr & ".uint16, ins: " & nregs.repr & ".uint16, outs: " & nregs.repr & ".uint16, instrs: @[\n" &
         "      newDexInvoke(0x70, " & nregs.repr & ", 0, Method(class: " & super.repr & ", name: \"<init>\", prototype: " & prototype & ")),\n" &
+        "      newDexInvoke(0x70, 1, 0, Method(class: " & class.repr & ", name: \"" & InitializerName & "\", prototype: Prototype(ret: \"V\", params: @[]))),\n" &
         "      return_void(),\n" &
         "    ])))\n"
 
@@ -468,12 +477,9 @@ proc implementConstructor(p: NimNode, className: string, sig: NimNode): NimNode 
       jniRegisterNativeMethods(`classIdent`, `iClazz`)
 
     let inst = `iClazz`.newObjectRaw(`sig`, `args`)
-    when compiles(result.data):
-      let data = new(type(result.data))
-      setNimDataToJObject(theEnv, inst, `iClazz`.get, cast[RootRef](data))
     result = `classIdent`.fromJObjectConsumingLocalRef(inst)
     when compiles(result.data):
-      result.data = data
+      result.data = cast[type(result.data)](getNimDataFromJObject(e, v))
 
 macro jexport*(a: varargs[untyped]): untyped =
   var (className, parentClass, interfaces, body, isPublic) = extractArguments(a)
@@ -613,10 +619,26 @@ macro jexport*(a: varargs[untyped]): untyped =
 
   block: # Finalizer thunk
     # let thunkName = genSym(nskProc, JniExportedFunctionPrefix & className & "__0")
-    let thunkName = ident(JniExportedFunctionPrefix & className & "__0")
+    let thunkName = ident(JniExportedFunctionPrefix & className & "_" & FinalizerName)
     result.add quote do:
       proc `thunkName`*(jniEnv: JNIEnvPtr, this: jobject, p: jlong) {.exportc, dynlib, cdecl.} =
         finalizeJobject(jniEnv, this, p)
+
+  block: # Initializer thunk
+    let iClazz = ident"clazz"
+    let classIdent = ident(className)
+    let thunkName = ident(JniExportedFunctionPrefix & className & "_" & InitializerName)
+    result.add quote do:
+      proc `thunkName`*(jniEnv: JNIEnvPtr, this: jobject) {.exportc, dynlib, cdecl.} =
+        const fq = JnimPackageName.replace(".", "/") & "/Jnim$" & `className`
+        var `iClazz` {.global.}: JVMClass
+        if unlikely `iClazz`.isNil:
+          `iClazz` = JVMClass.getByFqcn(fq)
+          # FIXME: don't repeat this here and in implementConstructor
+          jniRegisterNativeMethods(`classIdent`, `iClazz`)
+        when compiles(`classIdent`.data):
+          let data = new(type(`classIdent`.data))
+          setNimDataToJObject(theEnv, this, `iClazz`.get, cast[RootRef](data))
 
 
   result.add newCall(bindSym"genJexportGlue", newLit(className), parentFq, inter, newLit(isPublic), methodDefs, staticSection, emitSection)
