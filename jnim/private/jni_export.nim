@@ -402,7 +402,7 @@ macro jexport*(a: varargs[untyped]): untyped =
 
         thunkCall = newCall(bindSym"nimValueToJni", envName, thunkCall, copyNimTree(thunkParams[0]))
 
-        let thunk = newProc(thunkName, thunkParams)
+        let thunk = newProc(postfix(thunkName, "*"), thunkParams)
         thunk.addPragma(newIdentNode("cdecl"))
         thunk.addPragma(newIdentNode("dynlib"))
         thunk.addPragma(newIdentNode("exportc")) # Allow jni runtime to discover the functions
@@ -435,7 +435,7 @@ macro jexport*(a: varargs[untyped]): untyped =
   block: # Finalizer thunk
     let thunkName = ident(JniExportedFunctionPrefix & className & "_" & FinalizerName.replace("_", "_1"))
     result.add quote do:
-      proc `thunkName`(jniEnv: JNIEnvPtr, this: jobject, p: jlong) {.exportc, dynlib, cdecl.} =
+      proc `thunkName`*(jniEnv: JNIEnvPtr, this: jobject, p: jlong) {.exportc, dynlib, cdecl.} =
         finalizeJobject(jniEnv, this, p)
 
 
@@ -465,7 +465,7 @@ macro jexport*(a: varargs[untyped]): untyped =
     let classIdent = ident(className)
     let thunkName = ident(JniExportedFunctionPrefix & className & "_" & InitializerName.replace("_", "_1"))
     result.add quote do:
-      proc `thunkName`(jniEnv: JNIEnvPtr, this: jobject) {.exportc, dynlib, cdecl.} =
+      proc `thunkName`*(jniEnv: JNIEnvPtr, this: jobject) {.exportc, dynlib, cdecl.} =
         const fq = JnimPackageName.replace(".", "/") & "/Jnim$" & `className`
         var `iClazz` {.global.}: JVMClass
         if unlikely `iClazz`.isNil:
