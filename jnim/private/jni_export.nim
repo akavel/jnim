@@ -465,7 +465,7 @@ macro jexport*(a: varargs[untyped]): untyped =
     let classIdent = ident(className)
     let thunkName = ident(JniExportedFunctionPrefix & className & "_" & InitializerName.replace("_", "_1"))
     result.add quote do:
-      proc `thunkName`(jniEnv: JNIEnvPtr, this: jobject) {.exportc, dynlib, cdecl.} =
+      proc `thunkName`*(jniEnv: JNIEnvPtr, this: jobject) {.exportc, dynlib, cdecl.} =
         const fq = JnimPackageName.replace(".", "/") & "/Jnim$" & `className`
         var `iClazz` {.global.}: JVMClass
         if unlikely `iClazz`.isNil:
