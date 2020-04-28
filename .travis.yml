@@ -9,7 +9,7 @@ addons:
 before_install:
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 90
   # Install nim
-  - git clone -b devel git://github.com/nim-lang/Nim.git --depth 1
+  - git clone -b version-1-2 git://github.com/nim-lang/Nim.git --depth 1
   - cd Nim
   - git clone --depth 1 git://github.com/nim-lang/csources
   - cd csources && sh build.sh
